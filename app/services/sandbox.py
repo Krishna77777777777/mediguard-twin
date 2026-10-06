@@ -21,6 +21,7 @@ def run_sandbox(patient, prescription) -> SandboxResult:
         patient.current_medications,
         patient.recently_stopped_medications,
         prescription,
+        patient.adverse_reactions,
     )
     findings = analyze_risks(patient, prescription, timeline)
 

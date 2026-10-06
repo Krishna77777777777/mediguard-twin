@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from ..models import MedicationRecord, PrescriptionInput, TimelineEntry
+from ..models import AdverseReaction, MedicationRecord, PrescriptionInput, TimelineEntry
 
 
 def medication_stop_date(med: MedicationRecord) -> date:
@@ -13,12 +13,14 @@ def timeline_for_30_days(
     current_meds: list[MedicationRecord],
     stopped_meds: list[MedicationRecord],
     prescription: PrescriptionInput,
+    adverse_reactions: list[AdverseReaction] | None = None,
     today: date | None = None,
 ) -> list[TimelineEntry]:
     today = today or date.today()
     lookback = today - timedelta(days=30)
     rx_stop = prescription.start_date + timedelta(days=prescription.duration_days - 1)
 
+    adverse_reactions = adverse_reactions or []
     entries: list[TimelineEntry] = []
     for med in [*current_meds, *stopped_meds]:
         stop_date = medication_stop_date(med)
@@ -37,6 +39,12 @@ def timeline_for_30_days(
         recently_stopped = stop_date < today and (today - stop_date).days <= 30
         days_since_last = (today - stop_date).days if stop_date < today else None
 
+        linked_reactions = [
+            f"{event.date.isoformat()}: {event.symptom}"
+            for event in adverse_reactions
+            if event.suspected_drug.lower() == med.ingredient.lower()
+        ]
+
         entries.append(
             TimelineEntry(
                 drug_name=med.drug_name,
@@ -49,6 +57,7 @@ def timeline_for_30_days(
                 days_since_last_dose=days_since_last,
                 recent_exposure=(today - stop_date).days <= 30,
                 overlap_with_new_rx_days=overlap,
+                reaction_events=linked_reactions,
             )
         )
 

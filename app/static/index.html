@@ -56,7 +56,7 @@
   <div class="grid" style="margin-top:14px">
     <section class="card">
       <h2>30-Day Timeline</h2>
-      <table id="timelineTable"><thead><tr><th>Drug</th><th>Window</th><th>Status</th><th>Overlap</th><th>Days Since Last Dose</th></tr></thead><tbody></tbody></table>
+      <table id="timelineTable"><thead><tr><th>Drug</th><th>Window</th><th>Status</th><th>Overlap</th><th>Days Since Last Dose</th><th>Reaction Events</th></tr></thead><tbody></tbody></table>
     </section>
 
     <section class="card">
@@ -105,12 +105,13 @@ function payload() {
 
 function renderTimeline(timeline) {
   const tbody = document.querySelector('#timelineTable tbody');
-  tbody.innerHTML = timeline.map(t => `<tr><td>${t.drug_name} (${t.ingredient})</td><td>${t.start_date} → ${t.stop_date}</td><td>${t.currently_active ? 'Active' : (t.recently_stopped ? 'Recently stopped' : 'Historical')}</td><td>${t.overlap_with_new_rx_days} day(s)</td><td>${t.days_since_last_dose ?? '-'}</td></tr>`).join('') || '<tr><td colspan="5">No entries in lookback.</td></tr>';
+  tbody.innerHTML = timeline.map(t => `<tr><td>${t.drug_name} (${t.ingredient})</td><td>${t.start_date} → ${t.stop_date}</td><td>${t.currently_active ? 'Active' : (t.recently_stopped ? 'Recently stopped' : 'Historical')}</td><td>${t.overlap_with_new_rx_days} day(s)</td><td>${t.days_since_last_dose ?? '-'}</td><td>${(t.reaction_events || []).join('<br/>') || '-'}</td></tr>`).join('') || '<tr><td colspan="6">No entries in lookback.</td></tr>';
 }
 
-function renderRisks(findings, highest) {
+function renderRisks(findings, highest, audit) {
   const host = document.getElementById('risks');
-  host.innerHTML = `<p><b>Highest risk:</b> ${highest}</p>` + findings.map(f => `
+  host.innerHTML = `<p><b>Highest risk:</b> ${highest}</p>
+    <p class="meta">Audit: KB ${audit.knowledge_base_version} • Generated ${audit.generated_at}<br/>Missing data notes: ${(audit.missing_data_notes || []).join('; ') || 'None'}</p>` + findings.map(f => `
     <div class="risk ${f.risk_level}">
       <b>${f.risk_level} — ${f.title}</b><br/>
       <span class="meta">${f.category} • confidence ${(f.confidence*100).toFixed(0)}%</span>
@@ -165,7 +166,7 @@ document.getElementById('analyzeBtn').onclick = async () => {
   try {
     const out = await api(`/api/analyze/demo/${currentPatient.id}`, {method:'POST', body:JSON.stringify(payload())});
     renderTimeline(out.timeline);
-    renderRisks(out.findings, out.highest_risk);
+    renderRisks(out.findings, out.highest_risk, out.audit);
   } catch (e) { alert(e.message); }
 }
 

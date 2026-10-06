@@ -94,6 +94,7 @@ class TimelineEntry(BaseModel):
     days_since_last_dose: Optional[int]
     recent_exposure: bool
     overlap_with_new_rx_days: int = 0
+    reaction_events: List[str] = Field(default_factory=list)
 
 
 class RiskFinding(BaseModel):
@@ -114,6 +115,7 @@ class AnalysisResult(BaseModel):
     timeline: List[TimelineEntry]
     findings: List[RiskFinding]
     highest_risk: RiskLevel
+    audit: dict
     disclaimer: str
 
 

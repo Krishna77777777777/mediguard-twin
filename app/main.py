@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,14 +60,32 @@ def analyze(patient: PatientProfile, prescription: PrescriptionInput) -> Analysi
         patient.current_medications,
         patient.recently_stopped_medications,
         prescription,
+        patient.adverse_reactions,
     )
     findings = analyze_risks(patient, prescription, timeline)
+    missing_data_notes = []
+    if patient.organ_indicators.egfr is None:
+        missing_data_notes.append("Missing eGFR limits renal-dose certainty.")
+    if not patient.diagnoses:
+        missing_data_notes.append("No diagnoses provided; disease interactions may be missed.")
     return AnalysisResult(
         patient_id=patient.id,
         prescription=prescription,
         timeline=timeline,
         findings=findings,
         highest_risk=highest_risk(findings),
+        audit={
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "knowledge_base_version": KNOWLEDGE_BASE_VERSION,
+            "patient_facts_count": {
+                "diagnoses": len(patient.diagnoses),
+                "allergies": len(patient.allergies),
+                "current_medications": len(patient.current_medications),
+                "recently_stopped_medications": len(patient.recently_stopped_medications),
+                "adverse_reactions": len(patient.adverse_reactions),
+            },
+            "missing_data_notes": missing_data_notes,
+        },
         disclaimer=DISCLAIMER,
     )
 
@@ -85,6 +105,7 @@ def sandbox(payload: SandboxRequest) -> dict:
         payload.patient.current_medications,
         payload.patient.recently_stopped_medications,
         payload.prescription,
+        payload.patient.adverse_reactions,
     )
     findings = analyze_risks(payload.patient, payload.prescription, timeline)
     return {

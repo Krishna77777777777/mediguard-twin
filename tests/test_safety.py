@@ -31,10 +31,10 @@ def test_high_risk_patient_gets_critical_interaction():
 def test_lower_risk_patient_falls_back_to_low_or_moderate():
     patient = DEMO_PATIENTS["lower-risk"]
     rx = PrescriptionInput(
-        drug_name="Paracetamol",
-        ingredient="acetaminophen",
-        strength="500 mg",
-        dose=500,
+        drug_name="Ibuprofen",
+        ingredient="ibuprofen",
+        strength="200 mg",
+        dose=200,
         unit="mg",
         route="oral",
         frequency=Frequency.DAILY,
