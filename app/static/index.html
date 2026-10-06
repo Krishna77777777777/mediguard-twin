@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediGuard Twin</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#151d33; --text:#eef3ff; --muted:#9db0da; --accent:#5ac8fa; --danger:#ff6b6b; --warn:#ffd166; --ok:#7bd88f; }
+    body { margin:0; font-family: Inter, system-ui, Arial, sans-serif; background:linear-gradient(160deg,#0a0f1d,#121b35); color:var(--text); }
+    .wrap{max-width:1200px;margin:0 auto;padding:20px;}
+    .banner{background:#4a1118;border:1px solid #a9434f;padding:12px;border-radius:10px;margin-bottom:16px;font-weight:600;}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
+    .card{background:var(--panel);padding:16px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.25);}
+    h1,h2,h3{margin:.2rem 0 .8rem}
+    button,select,input{width:100%;margin:5px 0 10px;padding:10px;border-radius:8px;border:1px solid #2f3f66;background:#0d1630;color:var(--text)}
+    button{background:#1766ff;border:none;font-weight:700;cursor:pointer}
+    .risk{padding:10px;border-radius:8px;margin:8px 0;background:#0d1730;border-left:4px solid var(--accent)}
+    .CRITICAL{border-left-color:var(--danger)} .HIGH{border-left-color:#ff9f43} .MODERATE{border-left-color:var(--warn)} .LOW{border-left-color:var(--ok)}
+    table{width:100%;border-collapse:collapse;font-size:.9rem}
+    th,td{padding:8px;border-bottom:1px solid #293a62;text-align:left;vertical-align:top}
+    .meta{color:var(--muted);font-size:.85rem}
+    .node{display:inline-block;padding:4px 8px;border-radius:999px;background:#203058;margin:4px 4px 0 0;font-size:.82rem}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="banner">⚠️ Not medical advice. MediGuard Twin is a decision-support prototype and does not replace licensed clinician judgment or independent prescribing decisions.</div>
+  <h1>MediGuard Twin Dashboard</h1>
+  <p class="meta">Explainable medication safety with 30-day timeline, risk cards, relationship map, and virtual-patient sandbox.</p>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Patient Overview</h2>
+      <label>Demo patient</label>
+      <select id="patientSelect"></select>
+      <div id="patientOverview" class="meta"></div>
+    </section>
+
+    <section class="card">
+      <h2>Prescription Analyzer</h2>
+      <input id="drug" placeholder="Drug name (e.g., Ibuprofen)" />
+      <input id="ingredient" placeholder="Ingredient (e.g., ibuprofen)" />
+      <input id="strength" placeholder="Strength (e.g., 400 mg)" />
+      <input id="dose" type="number" placeholder="Dose" value="400" />
+      <input id="unit" placeholder="Unit" value="mg" />
+      <input id="route" placeholder="Route" value="oral" />
+      <select id="frequency"><option>daily</option><option selected>bid</option><option>tid</option><option>qid</option><option>weekly</option><option>prn</option></select>
+      <input id="start" type="date" />
+      <input id="duration" type="number" value="7" min="1" />
+      <input id="indication" placeholder="Indication" value="pain" />
+      <button id="analyzeBtn">Run Safety Analysis</button>
+      <button id="sandboxBtn">Run Sandbox Simulation</button>
+    </section>
+  </div>
+
+  <div class="grid" style="margin-top:14px">
+    <section class="card">
+      <h2>30-Day Timeline</h2>
+      <table id="timelineTable"><thead><tr><th>Drug</th><th>Window</th><th>Status</th><th>Overlap</th><th>Days Since Last Dose</th><th>Reaction Events</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section class="card">
+      <h2>Risk & Evidence Cards</h2>
+      <div id="risks"></div>
+    </section>
+  </div>
+
+  <div class="grid" style="margin-top:14px">
+    <section class="card">
+      <h2>Relationship Map</h2>
+      <div id="map"></div>
+    </section>
+    <section class="card">
+      <h2>Sandbox Results + Audit Notes</h2>
+      <div id="sandbox"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const today = new Date().toISOString().slice(0,10);
+document.getElementById('start').value = today;
+let currentPatient = null;
+
+async function api(url, options={}) {
+  const res = await fetch(url, {headers:{'Content-Type':'application/json'}, ...options});
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function payload() {
+  return {
+    drug_name: document.getElementById('drug').value || 'Ibuprofen',
+    ingredient: (document.getElementById('ingredient').value || 'ibuprofen').toLowerCase(),
+    strength: document.getElementById('strength').value || '400 mg',
+    dose: Number(document.getElementById('dose').value || 400),
+    unit: document.getElementById('unit').value || 'mg',
+    route: document.getElementById('route').value || 'oral',
+    frequency: document.getElementById('frequency').value,
+    start_date: document.getElementById('start').value,
+    duration_days: Number(document.getElementById('duration').value || 7),
+    indication: document.getElementById('indication').value || 'pain'
+  }
+}
+
+function renderTimeline(timeline) {
+  const tbody = document.querySelector('#timelineTable tbody');
+  tbody.innerHTML = timeline.map(t => `<tr><td>${t.drug_name} (${t.ingredient})</td><td>${t.start_date} → ${t.stop_date}</td><td>${t.currently_active ? 'Active' : (t.recently_stopped ? 'Recently stopped' : 'Historical')}</td><td>${t.overlap_with_new_rx_days} day(s)</td><td>${t.days_since_last_dose ?? '-'}</td><td>${(t.reaction_events || []).join('<br/>') || '-'}</td></tr>`).join('') || '<tr><td colspan="6">No entries in lookback.</td></tr>';
+}
+
+function renderRisks(findings, highest, audit) {
+  const host = document.getElementById('risks');
+  host.innerHTML = `<p><b>Highest risk:</b> ${highest}</p>
+    <p class="meta">Audit: KB ${audit.knowledge_base_version} • Generated ${audit.generated_at}<br/>Missing data notes: ${(audit.missing_data_notes || []).join('; ') || 'None'}</p>` + findings.map(f => `
+    <div class="risk ${f.risk_level}">
+      <b>${f.risk_level} — ${f.title}</b><br/>
+      <span class="meta">${f.category} • confidence ${(f.confidence*100).toFixed(0)}%</span>
+      <p><b>Mechanism:</b> ${f.mechanism}</p>
+      <p><b>Patient facts:</b> ${f.patient_facts_used.join('; ')}</p>
+      <p><b>Evidence:</b> ${f.evidence_source}</p>
+      <p><b>Action:</b> ${f.recommended_clinician_action}</p>
+      ${f.uncertainty_notes ? `<p><b>Uncertainty:</b> ${f.uncertainty_notes}</p>` : ''}
+    </div>`).join('');
+}
+
+function renderMap(graph) {
+  const map = document.getElementById('map');
+  const nodes = graph.nodes.map(n => `<span class="node">${n.type}: ${n.label}</span>`).join('');
+  const edges = graph.edges.map(e => `<li>${e.from} → ${e.to} (${e.label})</li>`).join('');
+  map.innerHTML = `<div>${nodes}</div><h3>Relationships</h3><ul>${edges}</ul>`;
+}
+
+function renderSandbox(result) {
+  const s = result.simulation;
+  document.getElementById('sandbox').innerHTML = `
+    <p><b>Mode:</b> ${s.mode}</p>
+    <p><b>Final recommendation:</b> ${s.final_recommendation}</p>
+    <p class="meta">${s.disclaimer}</p>
+    <h3>Stop cases</h3>
+    <ul>${(s.stop_cases || []).map(c => `<li><b>${c.risk_level}</b> ${c.code}: ${c.reason}</li>`).join('') || '<li>None</li>'}</ul>
+    <h3>Simulation timeline</h3>
+    <ul>${s.steps.map(step => `<li>Day ${step.day}: ${step.summary}${step.triggered_flags?.length ? ` [${step.triggered_flags.join(', ')}]` : ''}</li>`).join('')}</ul>
+  `;
+  renderMap(result.relationship_map);
+}
+
+async function loadPatients() {
+  const patients = await api('/api/patients');
+  const select = document.getElementById('patientSelect');
+  select.innerHTML = patients.map(p => `<option value="${p.id}">${p.name} (${p.id})</option>`).join('');
+  await loadPatient(select.value);
+  select.onchange = () => loadPatient(select.value);
+}
+
+async function loadPatient(id) {
+  currentPatient = await api(`/api/patients/${id}`);
+  document.getElementById('patientOverview').innerHTML = `
+    <b>${currentPatient.name}</b> • Age ${currentPatient.age} • Weight ${currentPatient.weight_kg}kg
+    <br/>Diagnoses: ${currentPatient.diagnoses.join(', ')}
+    <br/>Allergies: ${currentPatient.allergies.map(a => `${a.substance} (${a.reaction})`).join(', ') || 'None'}
+    <br/>Renal/Liver: eGFR ${currentPatient.organ_indicators.egfr ?? 'N/A'}, ALT ${currentPatient.organ_indicators.alt ?? 'N/A'}, AST ${currentPatient.organ_indicators.ast ?? 'N/A'}
+  `;
+}
+
+document.getElementById('analyzeBtn').onclick = async () => {
+  try {
+    const out = await api(`/api/analyze/demo/${currentPatient.id}`, {method:'POST', body:JSON.stringify(payload())});
+    renderTimeline(out.timeline);
+    renderRisks(out.findings, out.highest_risk, out.audit);
+  } catch (e) { alert(e.message); }
+}
+
+document.getElementById('sandboxBtn').onclick = async () => {
+  try {
+    const body = {patient: currentPatient, prescription: payload()};
+    const out = await api('/api/sandbox', {method:'POST', body:JSON.stringify(body)});
+    renderSandbox(out);
+  } catch (e) { alert(e.message); }
+}
+
+loadPatients();
+</script>
+</body>
+</html>
